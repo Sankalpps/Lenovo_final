@@ -1,0 +1,17 @@
+{
+  "Drive_ID": "NVME-TEST-001",
+  "Vendor": "VendorA",
+  "Model": "Model-PRO",
+  "Firmware_Version": "FW2.1",
+  "Power_On_Hours": 30000,
+  "Total_TBW_TB": 100.5,
+  "Total_TBR_TB": 100.0,
+  "Temperature_C": 45.5,
+  "Percent_Life_Used": 50.0,
+  "Media_Errors": 0,
+  "Unsafe_Shutdowns": 2,
+  "CRC_Errors": 0,
+  "Read_Error_Rate": 5.27,
+  "Write_Error_Rate": 2.21,
+  "SMART_Warning_Flag": 0
+}

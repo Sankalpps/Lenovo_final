@@ -1,0 +1,31 @@
+{
+  "accuracy": 0.9865,
+  "precision": 0.9833962055803358,
+  "recall": 0.9865,
+  "f1_score": 0.9847772569376342,
+  "failure_modes": {
+    "0": "No Failure",
+    "1": "Wear-Out Failure",
+    "2": "Thermal Failure",
+    "3": "Firmware Failure",
+    "4": "Media Error Failure",
+    "5": "Unsafe Shutdown Failure",
+    "6": "Early-Life Failure"
+  },
+  "features": [
+    "Power_On_Hours",
+    "Total_TBW_TB",
+    "Total_TBR_TB",
+    "Temperature_C",
+    "Percent_Life_Used",
+    "Media_Errors",
+    "Unsafe_Shutdowns",
+    "CRC_Errors",
+    "Read_Error_Rate",
+    "Write_Error_Rate"
+  ],
+  "num_samples": 10000,
+  "train_samples": 8000,
+  "test_samples": 2000,
+  "enhancement": "Added Early-Life Failure (Manufacturing Defect) Detection"
+}

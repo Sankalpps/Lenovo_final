@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NVMe Drive Health Simulator</title>
+  <meta name="description" content="AI-powered NVMe drive failure type prediction using XGBoost and rule-based algorithms"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<!-- Ambient effects -->
+<div class="ambient">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+
+<!-- ═══ HEADER ═══ -->
+<header id="header">
+  <div class="header-wrap">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 32 32" fill="none">
+          <rect x="2" y="8" width="28" height="16" rx="3" stroke="currentColor" stroke-width="1.8"/>
+          <rect x="6" y="12" width="8" height="4" rx="1" fill="currentColor" opacity="0.5"/>
+          <rect x="18" y="12" width="3" height="4" rx="1" fill="currentColor" opacity="0.3"/>
+          <rect x="23" y="12" width="3" height="4" rx="1" fill="currentColor" opacity="0.3"/>
+          <circle cx="8" cy="20" r="1" fill="currentColor" opacity="0.4"/>
+          <line x1="0" y1="16" x2="2" y2="16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-name">NVMe <span>Health Simulator</span></h1>
+        <p class="brand-tag">Interactive Real-Time Failure Prediction</p>
+      </div>
+    </div>
+    <div class="header-meta">
+      <div class="chip chip-model">
+        <span class="chip-dot dot-cyan"></span>Live Prediction Mode
+      </div>
+      <div class="chip chip-acc" id="chip-acc">-</div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ MAIN ═══ -->
+<main id="main">
+
+  <div class="layout-grid">
+    
+    <!-- ─── LEFT: SIMULATOR CONTROLS ─── -->
+    <section class="side-controls">
+      <div class="card card-input">
+        <div class="card-head">
+          <h2><span class="icon-circle">&#9881;</span> Live Telemetry Simulator</h2>
+          <p>Drag sliders to instantly simulate drive environments</p>
+        </div>
+
+        <form id="form" autocomplete="off" onsubmit="return false;">
+          
+          <!-- Section 1: Usage -->
+          <div class="form-section">
+            <div class="section-label">Usage & Endurance</div>
+            
+            <div class="field field-slider">
+              <div class="field-head">
+                <label for="Power_On_Hours">Power-On Hours</label>
+                <div class="val-display">
+                  <input type="number" id="Power_On_Hours_val" value="35000" class="num-input">
+                  <span class="unit">hrs</span>
+                </div>
+              </div>
+              <input type="range" id="Power_On_Hours" value="35000" min="0" max="80000" step="100">
+            </div>
+
+            <div class="field field-slider">
+              <div class="field-head">
+                <label for="Total_TBW_TB">Total Bytes Written</label>
+                <div class="val-display">
+                  <input type="number" id="Total_TBW_TB_val" value="120" class="num-input">
+                  <span class="unit">TB</span>
+                </div>
+              </div>
+              <input type="range" id="Total_TBW_TB" value="120" min="0" max="600" step="1">
+            </div>
+
+            <div class="field field-slider">
+              <div class="field-head">
+                <label for="Total_TBR_TB">Total Bytes Read</label>
+                <div class="val-display">
+                  <input type="number" id="Total_TBR_TB_val" value="95" class="num-input">
+                  <span class="unit">TB</span>
+                </div>
+              </div>
+              <input type="range" id="Total_TBR_TB" value="95" min="0" max="600" step="1">
+            </div>
+          </div>
+
+          <!-- Section 2: Health -->
+          <div class="form-section">
+            <div class="section-label">Physical Health</div>
+            
+            <div class="field field-slider template-temp">
+              <div class="field-head">
+                <label for="Temperature_C">Temperature</label>
+                <div class="val-display">
+                  <input type="number" id="Temperature_C_val" value="42" class="num-input">
+                  <span class="unit">&deg;C</span>
+                </div>
+              </div>
+              <input type="range" id="Temperature_C" value="42" min="20" max="95" step="1" data-danger="70">
+            </div>
+
+            <div class="field field-slider template-wear">
+              <div class="field-head">
+                <label for="Percent_Life_Used">Percent Life Used</label>
+                <div class="val-display">
+                  <input type="number" id="Percent_Life_Used_val" value="25" class="num-input">
+                  <span class="unit">%</span>
+                </div>
+              </div>
+              <input type="range" id="Percent_Life_Used" value="25" min="0" max="100" step="1" data-danger="85">
+          </div>
+
+          <!-- Section 3: Errors -->
+          <div class="form-section">
+            <div class="section-label">Drive Errors & Alerts</div>
+            
+            <div class="field field-slider template-err">
+              <div class="field-head">
+                <label for="Media_Errors">Media Errors</label>
+                <div class="val-display">
+                  <input type="number" id="Media_Errors_val" value="1" class="num-input">
+                </div>
+              </div>
+              <input type="range" id="Media_Errors" value="1" min="0" max="25" step="1" data-danger="3">
+            </div>
+
+            <div class="field field-slider template-err">
+              <div class="field-head">
+                <label for="Unsafe_Shutdowns">Unsafe Shutdowns</label>
+                <div class="val-display">
+                  <input type="number" id="Unsafe_Shutdowns_val" value="3" class="num-input">
+                </div>
+              </div>
+              <input type="range" id="Unsafe_Shutdowns" value="3" min="0" max="30" step="1" data-danger="8">
+            </div>
+
+            <div class="field field-slider template-err">
+              <div class="field-head">
+                <label for="CRC_Errors">CRC Errors</label>
+                <div class="val-display">
+                  <input type="number" id="CRC_Errors_val" value="0" class="num-input">
+                </div>
+              </div>
+              <input type="range" id="CRC_Errors" value="0" min="0" max="20" step="1" data-danger="2">
+            </div>
+            
+            <div class="field field-slider template-err">
+              <div class="field-head">
+                <label for="Read_Error_Rate">Read Error Rate</label>
+                <div class="val-display">
+                  <input type="number" id="Read_Error_Rate_val" value="5.5" class="num-input">
+                </div>
+              </div>
+              <input type="range" id="Read_Error_Rate" value="5.5" min="0" max="50" step="0.5" data-danger="20">
+            </div>
+            
+            <div class="field field-slider template-err">
+              <div class="field-head">
+                <label for="Write_Error_Rate">Write Error Rate</label>
+                <div class="val-display">
+                  <input type="number" id="Write_Error_Rate_val" value="3.2" class="num-input">
+                </div>
+              </div>
+              <input type="range" id="Write_Error_Rate" value="3.2" min="0" max="50" step="0.5" data-danger="20">
+            </div>
+
+          </div>
+
+          <!-- Quick Load Actions -->
+          <div class="preset-actions">
+            <span class="preset-label">Presets:</span>
+            <button type="button" id="btn-sample" class="btn-preset danger">Critical Load</button>
+            <button type="button" id="btn-healthy" class="btn-preset safe">Factory New</button>
+            <button type="button" id="btn-thermal" class="btn-preset warning">Thermal Spike</button>
+          </div>
+          
+          <div style="margin-top: 24px;">
+             <button type="button" id="btn-predict-action" class="btn-main-predict">Analyze &amp; Predict</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- ─── RIGHT: LIVE RESULTS ─── -->
+    <section class="main-results">
+      
+      <!-- Verdict Banner -->
+      <div id="verdict" class="verdict safe">
+        <div class="verdict-icon" id="verdict-icon">&#10003;</div>
+        <div class="verdict-body">
+          <h2 id="verdict-title">System Ready</h2>
+          <p id="verdict-sub">Adjust parameters on the left to see live AI predictions.</p>
+        </div>
+      </div>
+
+      <div class="results-col">
+        <!-- ML Prediction -->
+        <div class="card card-ml">
+          <div class="card-head">
+            <h2><span class="icon-circle ic-purple">&#9733;</span> AI Failure Prediction</h2>
+            <div class="live-indicator">
+              <span class="dot"></span> Live Model Inference
+            </div>
+          </div>
+          <div class="ml-result">
+            <div class="ml-mode" id="ml-mode">—</div>
+            <div class="ml-probs" id="ml-probs"></div>
+          </div>
+          
+          <div class="insights-box" id="insights-box">
+            <div class="insight-row">
+              <span class="insight-label">Risk Level</span>
+              <span class="insight-value risk-badge" id="risk-level-badge">-</span>
+            </div>
+            <div class="insight-row">
+              <span class="insight-label">Contributing Factors</span>
+              <span class="insight-value" id="insight-factors">-</span>
+            </div>
+            <div class="insight-row action-row">
+              <span class="insight-label">Suggested Action</span>
+              <span class="insight-value" id="insight-actions">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Algorithm Scores -->
+        <div class="card card-algo">
+          <div class="card-head">
+            <h2><span class="icon-circle ic-cyan">&#9881;</span> Independent Algorithms</h2>
+            <p>5 discrete diagnostic layers scoring in real-time</p>
+          </div>
+          <div id="algo-results"></div>
+        </div>
+
+        <!-- Independent Algorithms (Mode 2 & 3) -->
+        <div class="card card-algo" id="independent-card" style="display:none;">
+          <div class="card-head">
+            <h2><span class="icon-circle ic-orange">⚡</span> Advanced Detection (Mode 2 & 3)</h2>
+            <p>Error filtering enabled: Only errors > 30% shown</p>
+          </div>
+          <div id="independent-results"></div>
+        </div>
+      </div>
+
+      <!-- Detailed Analysis -->
+      <div id="detail-panel" class="card card-detail hidden">
+        <div class="card-head">
+          <h2 id="detail-title">— Detailed Analysis</h2>
+        </div>
+        <div id="detail-reasons"></div>
+      </div>
+      
+    </section>
+
+  </div> <!-- End Layout Grid -->
+
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
