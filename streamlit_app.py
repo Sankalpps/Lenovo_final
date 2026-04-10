@@ -134,16 +134,26 @@ def load_models_and_tools():
     for model_file in model_files:
         model_path = os.path.join(model_dir, model_file)
         if os.path.exists(model_path):
-            with open(model_path, 'rb') as f:
-                model_name = model_file.replace('_model.pkl', '')
-                models[model_name] = pickle.load(f)
+            try:
+                with open(model_path, 'rb') as f:
+                    model_name = model_file.replace('_model.pkl', '')
+                    models[model_name] = pickle.load(f)
+            except Exception as e:
+                # Skip models that fail to load (e.g., xgboost if not installed)
+                pass
     
     # Load preprocessing tools
-    with open(os.path.join(data_dir, 'encoders.pkl'), 'rb') as f:
-        encoders = pickle.load(f)
+    try:
+        with open(os.path.join(data_dir, 'encoders.pkl'), 'rb') as f:
+            encoders = pickle.load(f)
+    except:
+        encoders = {}
     
-    with open(os.path.join(data_dir, 'scaler.pkl'), 'rb') as f:
-        scaler = pickle.load(f)
+    try:
+        with open(os.path.join(data_dir, 'scaler.pkl'), 'rb') as f:
+            scaler = pickle.load(f)
+    except:
+        scaler = StandardScaler()
     
     # Feature names
     feature_names = [
