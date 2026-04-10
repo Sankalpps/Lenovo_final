@@ -22,7 +22,13 @@
     "Thermal Failure": "#fbbf24",      // Amber
     "Firmware Failure": "#6366f1",     // Indigo
     "Media Error Failure": "#a855f7",   // Purple
-    "Unsafe Shutdown Failure": "#f97316" // Orange
+    "Unsafe Shutdown Failure": "#f97316", // Orange
+    // Independent Algorithms
+    "Wear-Out Failure (Independent)": "#f87171",      // Red
+    "Thermal Failure (Independent)": "#fbbf24",       // Amber
+    "Power-Related Failure (Independent)": "#f97316", // Orange
+    "Media Error Failure (Independent)": "#a855f7",   // Purple
+    "Unsafe Shutdown Failure (Independent)": "#ec4899" // Pink
   };
 
   function init() {
@@ -150,13 +156,14 @@
     container.innerHTML = data.independent_algorithms.map((a, i) => {
       const score = a.score;
       let rankClass = "low";
-      let barColor = COLOR_SAFE;
-      if (score >= 50) { rankClass = "top"; barColor = COLOR_DANGER; }
-      else if (score >= 25) { rankClass = "mid"; barColor = COLOR_WARN; }
+      let barColor = colorMap[a.label] || COLOR_SAFE;
+      
+      if (score >= 50) { rankClass = "top"; }
+      else if (score >= 25) { rankClass = "mid"; }
       
       return `
-        <div class="algo-row independent-row" data-idx="${i}" onclick="window.toggleIndependentDetail(${i})">
-          <div class="algo-rank ${rankClass}">${i + 1}</div>
+        <div class="algo-row independent-row" data-idx="${i}" data-mode="${a.mode}" onclick="window.toggleIndependentDetail(${i})">
+          <div class="algo-rank ${rankClass}">M${a.mode}</div>
           <span class="algo-name">${a.label}</span>
           <div class="algo-score-wrap">
             <div class="algo-bar-track">

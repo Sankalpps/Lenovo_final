@@ -523,6 +523,190 @@ def detect_power_related_failure(metrics: dict) -> dict:
     }
 
 
+# ============================================================
+# Independent Algorithms - All 5 Failure Modes with Error Filtering (>30%)
+# ============================================================
+
+def detect_wearout_failure_independent(metrics: dict) -> dict:
+    """
+    Independent Algorithm: Wear-Out Failure Detection (Mode 1)
+    -----------------------------------------------------------
+    Detects wear-out from life exhaustion. Only reports errors > 30%.
+    """
+    score = 0.0
+    reasons = []
+
+    life_used = metrics.get("Percent_Life_Used", 0)
+    tbw = metrics.get("Total_TBW_TB", 0)
+    poh = metrics.get("Power_On_Hours", 0)
+
+    # Life used assessment
+    if life_used >= 95:
+        score += 50
+        reasons.append(f"Critical life exhaustion: {life_used}% (>95%)")
+    elif life_used >= 85:
+        score += 35
+        reasons.append(f"High life usage: {life_used}% (>85%)")
+    elif life_used >= 75:
+        score += 20
+        reasons.append(f"Elevated life usage: {life_used}% (>75%)")
+
+    # High total bytes written
+    if tbw >= 400:
+        score += 25
+        reasons.append(f"Extreme write volume: {tbw} TB (>400 TB)")
+    elif tbw >= 300:
+        score += 15
+        reasons.append(f"Very high write volume: {tbw} TB (>300 TB)")
+
+    # Extended operation hours
+    if poh >= 60000:
+        score += 20
+        reasons.append(f"Extended operation: {poh:,} hours (>60,000 hrs)")
+    elif poh >= 40000:
+        score += 10
+        reasons.append(f"Long operation: {poh:,} hours (>40,000 hrs)")
+
+    if not reasons:
+        reasons.append("No significant wear-out indicators detected")
+
+    return {
+        "score": min(score, 100),
+        "reasons": reasons,
+        "mode": 1,
+        "label": "Wear-Out Failure (Independent)",
+        "error_filter": "Lifecycle degradation"
+    }
+
+
+def detect_media_error_independent(metrics: dict) -> dict:
+    """
+    Independent Algorithm: Media Error Failure Detection (Mode 4)
+    ---------------------------------------------------------------
+    Detects media failures from read/write errors. Only reports errors > 30%.
+    """
+    score = 0.0
+    reasons = []
+    significant_errors = []
+
+    media_err = metrics.get("Media_Errors", 0)
+    crc_err = metrics.get("CRC_Errors", 0)
+    read_err = metrics.get("Read_Error_Rate", 0)
+    write_err = metrics.get("Write_Error_Rate", 0)
+
+    # Base media error assessment
+    if media_err >= 20:
+        score += 50
+        reasons.append(f"Critical media errors: {int(media_err)} (>20)")
+    elif media_err >= 10:
+        score += 30
+        reasons.append(f"High media errors: {int(media_err)} (>10)")
+    elif media_err >= 5:
+        score += 15
+        reasons.append(f"Elevated media errors: {int(media_err)} (>5)")
+
+    # Error percentage analysis with 30% threshold
+    total_errors = media_err + crc_err
+    error_threshold = 30
+
+    # Media errors percentage
+    if media_err > 0 and total_errors > 0:
+        media_percentage = (media_err / total_errors) * 100
+        if media_percentage > error_threshold:
+            score += 25
+            significant_errors.append(f"Media Errors: {media_percentage:.1f}% (>30%)")
+
+    # Read/Write error rates
+    if read_err > error_threshold:
+        score += 15
+        significant_errors.append(f"Read Error Rate: {read_err:.1f}% (>30%)")
+    
+    if write_err > error_threshold:
+        score += 15
+        significant_errors.append(f"Write Error Rate: {write_err:.1f}% (>30%)")
+
+    reasons.extend(significant_errors)
+
+    if not significant_errors and score == 0:
+        reasons.append("No significant media errors detected")
+
+    return {
+        "score": min(score, 100),
+        "reasons": reasons,
+        "mode": 4,
+        "label": "Media Error Failure (Independent)",
+        "error_filter": "Errors > 30%"
+    }
+
+
+def detect_unsafe_shutdown_independent(metrics: dict) -> dict:
+    """
+    Independent Algorithm: Unsafe Shutdown Failure Detection (Mode 5)
+    ------------------------------------------------------------------
+    Detects power loss impact from corrupt shutdowns. Only reports errors > 30%.
+    """
+    score = 0.0
+    reasons = []
+    significant_errors = []
+
+    unsafe = metrics.get("Unsafe_Shutdowns", 0)
+    crc_err = metrics.get("CRC_Errors", 0)
+    media_err = metrics.get("Media_Errors", 0)
+    poh = metrics.get("Power_On_Hours", 0)
+
+    # Unsafe shutdown assessment
+    if unsafe >= 15:
+        score += 50
+        reasons.append(f"Extreme unsafe shutdowns: {int(unsafe)} (>15)")
+    elif unsafe >= 10:
+        score += 35
+        reasons.append(f"Critical unsafe shutdowns: {int(unsafe)} (>10)")
+    elif unsafe >= 5:
+        score += 20
+        reasons.append(f"High unsafe shutdowns: {int(unsafe)} (>5)")
+
+    # Corruption error analysis with 30% threshold
+    total_errors = crc_err + media_err
+    error_threshold = 30
+
+    # CRC errors from data corruption
+    if crc_err > 0 and total_errors > 0:
+        crc_percentage = (crc_err / total_errors) * 100
+        if crc_percentage > error_threshold:
+            score += 25
+            significant_errors.append(f"CRC Errors: {crc_percentage:.1f}% (>30%)")
+
+    # Media errors from incomplete writes
+    if media_err > 0 and total_errors > 0:
+        media_percentage = (media_err / total_errors) * 100
+        if media_percentage > error_threshold:
+            score += 20
+            significant_errors.append(f"Media Errors: {media_percentage:.1f}% (>30%)")
+
+    # Shutdown frequency
+    if poh > 0:
+        shutdown_rate = unsafe / poh * 1000
+        if shutdown_rate > 1.0:
+            score += 15
+            reasons.append(f"Extreme shutdown frequency: {shutdown_rate:.2f} per 1000 hrs (>1.0)")
+        elif shutdown_rate > 0.5:
+            score += 10
+            reasons.append(f"High shutdown frequency: {shutdown_rate:.2f} per 1000 hrs (>0.5)")
+
+    reasons.extend(significant_errors)
+
+    if not significant_errors and score == 0:
+        reasons.append("No significant unsafe shutdown issues detected")
+
+    return {
+        "score": min(score, 100),
+        "reasons": reasons,
+        "mode": 5,
+        "label": "Unsafe Shutdown Failure (Independent)",
+        "error_filter": "Errors > 30%"
+    }
+
+
 def run_all_algorithms(metrics: dict) -> list:
     """Run all failure detection algorithms and return sorted results."""
     results = [
@@ -538,10 +722,13 @@ def run_all_algorithms(metrics: dict) -> list:
 
 
 def run_independent_algorithms(metrics: dict) -> list:
-    """Run independent failure detection algorithms (Mode 2 & 3) with error filtering."""
+    """Run all independent failure detection algorithms (Mode 1, 2, 3, 4, 5) with error filtering."""
     results = [
+        detect_wearout_failure_independent(metrics),
         detect_thermal_failure_independent(metrics),
         detect_power_related_failure(metrics),
+        detect_media_error_independent(metrics),
+        detect_unsafe_shutdown_independent(metrics),
     ]
     results.sort(key=lambda x: x["score"], reverse=True)
     # Filter to only include results with scores > 0
