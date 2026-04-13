@@ -60,6 +60,26 @@
           <p>Drag sliders to instantly simulate drive environments</p>
         </div>
 
+        <div class="input-mode" id="input-mode">
+          <button type="button" class="mode-btn active" data-mode="manual">Manual Sliders</button>
+          <button type="button" class="mode-btn" data-mode="live">Real-Time Drive</button>
+        </div>
+        <div class="mode-help" id="mode-help">Manual mode active: use sliders and click Analyze &amp; Predict.</div>
+
+        <div class="live-feed-panel hidden" id="live-feed-panel">
+          <div class="live-feed-head">
+            <span>Live NVMe Feed</span>
+            <span class="live-badge idle" id="live-badge">Idle</span>
+          </div>
+          <div class="live-feed-grid">
+            <div class="live-kv"><span>Temp</span><strong id="live-temp">-</strong></div>
+            <div class="live-kv"><span>Life Used</span><strong id="live-life">-</strong></div>
+            <div class="live-kv"><span>Media</span><strong id="live-media">-</strong></div>
+            <div class="live-kv"><span>Unsafe</span><strong id="live-unsafe">-</strong></div>
+          </div>
+          <div class="live-source" id="live-source">Source: -</div>
+        </div>
+
         <form id="form" autocomplete="off" onsubmit="return false;">
           
           <!-- Section 1: Usage -->
@@ -246,6 +266,17 @@
             <p>5 discrete diagnostic layers scoring in real-time</p>
           </div>
           <div id="algo-results"></div>
+        </div>
+
+        <div class="card card-health">
+          <div class="card-head">
+            <h2><span class="icon-circle ic-cyan">&#9681;</span> Health Score Distribution Chart</h2>
+            <p>Subsystem health bands derived from independent algorithm scores</p>
+          </div>
+          <div class="health-chart-wrap">
+            <canvas id="health-score-chart" aria-label="Health score distribution chart" role="img"></canvas>
+          </div>
+          <div class="health-score-summary" id="health-score-summary">Awaiting prediction...</div>
         </div>
 
         <!-- Independent Algorithms (All 5 Modes) -->

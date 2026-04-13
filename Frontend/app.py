@@ -7,11 +7,14 @@ Uses XGBoost model + rule-based failure detection algorithms.
 
 import os
 import json
+import atexit
+import threading
 import numpy as np
 import pandas as pd
 import joblib
 from flask import Flask, render_template, request, jsonify
 from ml_pipeline import run_all_algorithms, run_independent_algorithms, FAILURE_MODE_LABELS, ALL_FEATURES
+from nvme_live_data_provider import LiveDataProvider, LiveTelemetryError
 
 # --- Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,6 +40,29 @@ except Exception as e:
     metadata = {}
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
+
+_live_provider = None
+_live_provider_lock = threading.Lock()
+
+
+def get_live_provider() -> LiveDataProvider:
+    global _live_provider
+    with _live_provider_lock:
+        if _live_provider is None:
+            _live_provider = LiveDataProvider(interval_sec=1.0)
+            _live_provider.start()
+    return _live_provider
+
+
+def stop_live_provider() -> None:
+    global _live_provider
+    with _live_provider_lock:
+        if _live_provider is not None:
+            _live_provider.stop()
+            _live_provider = None
+
+
+atexit.register(stop_live_provider)
 
 
 def build_feature_vector(data: dict) -> np.ndarray:
@@ -66,6 +92,27 @@ def index():
 @app.route("/api/metadata")
 def api_metadata():
     return jsonify(metadata)
+
+
+@app.route("/api/live-data", methods=["GET"])
+def live_data():
+    try:
+        provider = get_live_provider()
+        sample = provider.get_latest(timeout=3.0)
+        status = provider.get_status()
+        return jsonify({
+            "ok": True,
+            "telemetry": sample,
+            "schema": LiveDataProvider.SCHEMA_FIELDS,
+            "source": status.get("source", "unknown"),
+        })
+    except LiveTelemetryError as e:
+        return jsonify({"ok": False, "error": str(e)}), 503
+    except Exception as e:
+        import traceback
+        print(f"ERROR in live_data: {e}")
+        traceback.print_exc()
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 

@@ -9,6 +9,9 @@
 
   let activeAlgo = null;
   let predictTimeout = null;
+  let inputMode = "manual";
+  let livePollTimer = null;
+  let healthDistributionChart = null;
 
   // Colors
   const COLOR_SAFE = "#34d399";   // Green
@@ -22,6 +25,7 @@
     "Thermal Failure": "#fbbf24",      // Amber
     "Firmware Failure": "#6366f1",     // Indigo
     "Media Error Failure": "#a855f7",   // Purple
+    "Early-Life Failure": "#06b6d4",    // Teal
     "Unsafe Shutdown Failure": "#f97316", // Orange
     // Independent Algorithms
     "Wear-Out Failure (Independent)": "#f87171",      // Red
@@ -34,6 +38,12 @@
   function init() {
     bindInputs();
     bindPresets();
+    bindInputMode();
+    initHealthDistributionChart();
+
+    // Keep the independent algorithms panel hidden.
+    const independentCard = document.getElementById("independent-card");
+    if (independentCard) independentCard.style.display = "none";
     
     // Bind Predict button
     const predictBtn = document.getElementById("btn-predict-action");
@@ -48,7 +58,66 @@
         }
       }).catch(console.error);
 
-    // Remove initial prediction
+    setInputMode("manual");
+  }
+
+  function bindInputMode() {
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const targetMode = btn.dataset.mode;
+        if (!targetMode || targetMode === inputMode) return;
+        setInputMode(targetMode);
+      });
+    });
+  }
+
+  function setInputMode(mode) {
+    inputMode = mode === "live" ? "live" : "manual";
+    const isLive = inputMode === "live";
+
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.mode === inputMode);
+    });
+
+    const modeHelp = document.getElementById("mode-help");
+    const livePanel = document.getElementById("live-feed-panel");
+    const predictBtn = document.getElementById("btn-predict-action");
+
+    if (modeHelp) {
+      modeHelp.textContent = isLive
+        ? "Real-time mode active: reading SMART telemetry every second and predicting automatically."
+        : "Manual mode active: use sliders and click Analyze & Predict.";
+    }
+
+    if (livePanel) {
+      livePanel.classList.toggle("hidden", !isLive);
+    }
+
+    if (predictBtn) {
+      predictBtn.textContent = isLive ? "Pause Live Prediction" : "Analyze & Predict";
+    }
+
+    setManualControlsEnabled(!isLive);
+
+    if (isLive) {
+      startLivePolling();
+    } else {
+      stopLivePolling();
+      setLiveBadge("idle", "Idle");
+    }
+  }
+
+  function setManualControlsEnabled(enabled) {
+    document.querySelectorAll('input[type="range"]').forEach((el) => {
+      el.disabled = !enabled;
+    });
+    document.querySelectorAll(".num-input").forEach((el) => {
+      el.disabled = !enabled;
+    });
+    ["btn-sample", "btn-healthy", "btn-thermal"].forEach((id) => {
+      const btn = document.getElementById(id);
+      if (btn) btn.disabled = !enabled;
+    });
   }
 
   // ─── Input Syncing & Live Updates ────────────────────────────────
@@ -105,25 +174,96 @@
   // ─── Debounced API Call ──────────────────────────────────────────
 
   function triggerPrediction() {
-    // Show loading on chip
+    if (inputMode === "live") {
+      if (livePollTimer) {
+        stopLivePolling();
+        setLiveBadge("idle", "Paused");
+        const predictBtn = document.getElementById("btn-predict-action");
+        if (predictBtn) predictBtn.textContent = "Resume Live Prediction";
+      } else {
+        startLivePolling();
+        const predictBtn = document.getElementById("btn-predict-action");
+        if (predictBtn) predictBtn.textContent = "Pause Live Prediction";
+      }
+      return;
+    }
+
+    runPrediction(getFormData());
+  }
+
+  function runPrediction(data) {
     document.getElementById("chip-acc").innerHTML = '<span class="chip-dot" style="background:#fbbf24;box-shadow:none;"></span> Inference...';
 
-    const data = getFormData();
-      fetch("/api/predict", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      })
-      .then(res => res.json())
-      .then(resData => {
+    fetch("/api/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    })
+      .then((res) => res.json())
+      .then((resData) => {
         showResults(resData);
-        // Restore chip
-        document.getElementById("chip-acc").textContent = "Live Stream Active";
-        
-        // Also fetch independent algorithms
-        fetchIndependentAlgorithms(data);
+        document.getElementById("chip-acc").textContent = inputMode === "live" ? "Real-Time Feed Active" : "Live Stream Active";
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error(err);
+        document.getElementById("chip-acc").textContent = "Prediction Error";
+      });
+  }
+
+  function startLivePolling() {
+    if (livePollTimer) return;
+    setLiveBadge("active", "Active");
+    fetchLiveTelemetryAndPredict();
+    livePollTimer = setInterval(fetchLiveTelemetryAndPredict, 1000);
+  }
+
+  function stopLivePolling() {
+    if (!livePollTimer) return;
+    clearInterval(livePollTimer);
+    livePollTimer = null;
+  }
+
+  function setLiveBadge(state, text) {
+    const badge = document.getElementById("live-badge");
+    if (!badge) return;
+    badge.className = `live-badge ${state}`;
+    badge.textContent = text;
+  }
+
+  function fetchLiveTelemetryAndPredict() {
+    fetch("/api/live-data")
+      .then(async (res) => {
+        const payload = await res.json();
+        if (!res.ok || !payload.ok) {
+          throw new Error(payload.error || "Live telemetry unavailable");
+        }
+        return payload;
+      })
+      .then((payload) => {
+        updateLivePanel(payload.telemetry, payload.source || "unknown");
+        setValues(payload.telemetry);
+        setLiveBadge("active", "Active");
+        runPrediction(payload.telemetry);
+      })
+      .catch((err) => {
+        setLiveBadge("error", "Error");
+        const source = document.getElementById("live-source");
+        if (source) source.textContent = `Source: ${err.message}`;
+      });
+  }
+
+  function updateLivePanel(telemetry, source) {
+    const temp = document.getElementById("live-temp");
+    const life = document.getElementById("live-life");
+    const media = document.getElementById("live-media");
+    const unsafe = document.getElementById("live-unsafe");
+    const sourceEl = document.getElementById("live-source");
+
+    if (temp) temp.textContent = `${(telemetry.Temperature_C ?? 0).toFixed(1)} C`;
+    if (life) life.textContent = `${(telemetry.Percent_Life_Used ?? 0).toFixed(1)}%`;
+    if (media) media.textContent = `${telemetry.Media_Errors ?? 0}`;
+    if (unsafe) unsafe.textContent = `${telemetry.Unsafe_Shutdowns ?? 0}`;
+    if (sourceEl) sourceEl.textContent = `Source: ${source}`;
   }
 
   function fetchIndependentAlgorithms(formData) {
@@ -177,6 +317,112 @@
     
     // Store for detail view
     window._independentResults = data.independent_algorithms;
+  }
+
+  function initHealthDistributionChart() {
+    const canvas = document.getElementById("health-score-chart");
+    const summary = document.getElementById("health-score-summary");
+
+    if (!canvas || typeof Chart === "undefined") {
+      if (summary) {
+        summary.textContent = "Chart unavailable: Chart.js failed to load.";
+      }
+      return;
+    }
+
+    healthDistributionChart = new Chart(canvas, {
+      type: "doughnut",
+      data: {
+        labels: ["Excellent (85-100)", "Good (70-84)", "Watch (50-69)", "Critical (0-49)"],
+        datasets: [
+          {
+            data: [0, 0, 0, 0],
+            backgroundColor: ["#34d399", "#22d3ee", "#fbbf24", "#f87171"],
+            borderWidth: 0,
+            hoverOffset: 6,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "68%",
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: {
+              color: "#8b95ad",
+              boxWidth: 10,
+              boxHeight: 10,
+              padding: 12,
+              font: {
+                size: 11,
+                weight: "600"
+              }
+            }
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.label}: ${ctx.raw} subsystem(s)`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  function updateHealthDistributionChart(algoResults) {
+    if (!healthDistributionChart || !Array.isArray(algoResults)) {
+      return;
+    }
+
+    const buckets = {
+      excellent: 0,
+      good: 0,
+      watch: 0,
+      critical: 0,
+    };
+
+    let totalHealth = 0;
+
+    algoResults.forEach((algo) => {
+      const failureScore = Number(algo.score) || 0;
+      const healthScore = Math.max(0, 100 - failureScore);
+      totalHealth += healthScore;
+
+      if (healthScore >= 85) {
+        buckets.excellent += 1;
+      } else if (healthScore >= 70) {
+        buckets.good += 1;
+      } else if (healthScore >= 50) {
+        buckets.watch += 1;
+      } else {
+        buckets.critical += 1;
+      }
+    });
+
+    healthDistributionChart.data.datasets[0].data = [
+      buckets.excellent,
+      buckets.good,
+      buckets.watch,
+      buckets.critical,
+    ];
+    healthDistributionChart.update();
+
+    const avgHealth = algoResults.length ? (totalHealth / algoResults.length) : 0;
+    let label = "Critical";
+    if (avgHealth >= 85) {
+      label = "Excellent";
+    } else if (avgHealth >= 70) {
+      label = "Good";
+    } else if (avgHealth >= 50) {
+      label = "Watch";
+    }
+
+    const summary = document.getElementById("health-score-summary");
+    if (summary) {
+      summary.textContent = `Average Health Score: ${avgHealth.toFixed(1)}/100 (${label})`;
+    }
   }
 
   function getFormData() {
@@ -276,6 +522,8 @@
           </div>
         </div>`;
     }).join("");
+
+    updateHealthDistributionChart(data.algorithm_results);
 
     // Reattach global toggler and data so HTML onclick can reach it
     window._latestAlgorithmResults = data.algorithm_results;
