@@ -25,9 +25,9 @@ try:
     model = joblib.load(os.path.join(MODEL_DIR, "xgb_model.pkl"))
     scaler = joblib.load(os.path.join(MODEL_DIR, "scaler.pkl"))
     label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
-    print("✓ Models loaded successfully")
+    print("Models loaded successfully")
 except Exception as e:
-    print(f"⚠ Warning: Could not load models: {e}")
+    print(f"Warning: Could not load models: {e}")
     model = None
     scaler = None
     label_encoder = None
@@ -36,7 +36,7 @@ try:
     with open(os.path.join(MODEL_DIR, "metadata.json")) as f:
         metadata = json.load(f)
 except Exception as e:
-    print(f"⚠ Warning: Could not load metadata: {e}")
+    print(f"Warning: Could not load metadata: {e}")
     metadata = {}
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -98,7 +98,7 @@ def api_metadata():
 def live_data():
     try:
         provider = get_live_provider()
-        sample = provider.get_latest(timeout=3.0)
+        sample = provider.get_latest(timeout=8.0)
         status = provider.get_status()
         return jsonify({
             "ok": True,

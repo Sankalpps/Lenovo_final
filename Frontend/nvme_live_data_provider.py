@@ -166,36 +166,37 @@ class LiveDataProvider:
 
     def _read_windows_fallback_json(self):
         script = r"""
-        $disk = Get-PhysicalDisk | Select-Object -First 1 FriendlyName,HealthStatus,Size
-        if (-not $disk) {
-            throw "No physical disk found"
+        $uptimeHours = 0.0
+        try {
+            $uptimeHours = (Get-Uptime).TotalHours
+        } catch {
+            $uptimeHours = 0.0
         }
 
-        $os = Get-CimInstance Win32_OperatingSystem | Select-Object -First 1 LastBootUpTime
-        $uptime = if ($os) { ((Get-Date) - $os.LastBootUpTime).TotalHours } else { 0 }
-
-        $read = (Get-Counter '\PhysicalDisk(_Total)\Disk Read Bytes/sec' -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue
-        $write = (Get-Counter '\PhysicalDisk(_Total)\Disk Write Bytes/sec' -ErrorAction SilentlyContinue).CounterSamples[0].CookedValue
-
-        $rel = $null
+        $read = 0.0
+        $write = 0.0
         try {
-            $rel = Get-PhysicalDisk | Get-StorageReliabilityCounter -ErrorAction SilentlyContinue | Select-Object -First 1 Temperature,Wear,ReadErrorsTotal,WriteErrorsTotal,PowerOnHours,UnsafeShutdownCount
+            $readSample = (Get-Counter '\PhysicalDisk(_Total)\Disk Read Bytes/sec' -ErrorAction Stop).CounterSamples | Select-Object -First 1
+            if ($readSample) { $read = [double]$readSample.CookedValue }
+        } catch {}
+
+        try {
+            $writeSample = (Get-Counter '\PhysicalDisk(_Total)\Disk Write Bytes/sec' -ErrorAction Stop).CounterSamples | Select-Object -First 1
+            if ($writeSample) { $write = [double]$writeSample.CookedValue }
+        } catch {}
+
+        $diskStatus = ""
+        try {
+            $diskStatus = [string](Get-Volume -ErrorAction Stop | Select-Object -First 1 HealthStatus)
         } catch {
-            $rel = $null
+            $diskStatus = ""
         }
 
         [PSCustomObject]@{
-            health_status = [string]$disk.HealthStatus
-            size_bytes = [double]$disk.Size
-            uptime_hours = [double]$uptime
+            health_status = $diskStatus
+            uptime_hours = [double]$uptimeHours
             read_bps = [double]$read
             write_bps = [double]$write
-            power_on_hours = if ($rel -and $rel.PowerOnHours) { [double]$rel.PowerOnHours } else { [double]$uptime }
-            temperature_c = if ($rel -and $rel.Temperature) { [double]$rel.Temperature } else { $null }
-            wear_used = if ($rel -and $rel.Wear) { [double]$rel.Wear } else { $null }
-            read_errors = if ($rel -and $rel.ReadErrorsTotal) { [double]$rel.ReadErrorsTotal } else { 0 }
-            write_errors = if ($rel -and $rel.WriteErrorsTotal) { [double]$rel.WriteErrorsTotal } else { 0 }
-            unsafe_shutdowns = if ($rel -and $rel.UnsafeShutdownCount) { [double]$rel.UnsafeShutdownCount } else { 0 }
         } | ConvertTo-Json -Compress
         """
 
@@ -245,6 +246,25 @@ class LiveDataProvider:
         return {"windows_fallback": raw}
 
     @staticmethod
+    def _uptime_to_power_on_hours(uptime_hours: float) -> float:
+        return max(1.0, uptime_hours)
+
+    @staticmethod
+    def _estimate_temperature(read_bps: float, write_bps: float) -> float:
+        io_mb_s = max(0.0, read_bps + write_bps) / 1_000_000.0
+        return min(75.0, 35.0 + (io_mb_s * 0.08))
+
+    @staticmethod
+    def _estimate_wear_used(power_on_hours: float, total_tbw_tb: float, health_status: str) -> float:
+        health_hint = 10.0 if "healthy" in health_status.lower() else 0.0
+        wear = max(
+            health_hint,
+            total_tbw_tb / 12.0,
+            power_on_hours / 2500.0,
+        )
+        return max(0.0, min(100.0, wear))
+
+    @staticmethod
     def _to_float(value, default: float = 0.0) -> float:
         try:
             return float(value)
@@ -272,25 +292,39 @@ class LiveDataProvider:
     def _map_to_simulator_schema(self, smart_json: Dict) -> Dict[str, float]:
         if "windows_fallback" in smart_json:
             raw = smart_json.get("windows_fallback", {})
-            power_on_hours = self._to_float(raw.get("power_on_hours"), self._to_float(raw.get("uptime_hours"), 1.0))
+            total_tbr_tb = round(self._to_float(raw.get("estimated_total_tbr_tb"), 0.0), 4)
+            total_tbw_tb = round(self._to_float(raw.get("estimated_total_tbw_tb"), 0.0), 4)
+            power_on_hours = self._to_float(
+                raw.get("power_on_hours"),
+                self._uptime_to_power_on_hours(self._to_float(raw.get("uptime_hours"), 1.0)),
+            )
             media_errors = self._to_float(raw.get("read_errors"), 0.0)
             crc_errors = self._to_float(raw.get("write_errors"), 0.0)
             unsafe_shutdowns = self._to_float(raw.get("unsafe_shutdowns"), 0.0)
 
-            temp = self._to_float(raw.get("temperature_c"), 40.0)
+            temp = self._to_float(
+                raw.get("temperature_c"),
+                self._estimate_temperature(
+                    self._to_float(raw.get("read_bps"), 0.0),
+                    self._to_float(raw.get("write_bps"), 0.0),
+                ),
+            )
             if temp <= 0:
                 temp = 40.0
 
             wear_used = self._to_float(raw.get("wear_used"), 0.0)
             if wear_used <= 0:
-                health = str(raw.get("health_status", "")).lower()
-                wear_used = 10.0 if "healthy" in health else 60.0
+                wear_used = self._estimate_wear_used(
+                    power_on_hours,
+                    total_tbw_tb,
+                    str(raw.get("health_status", "")),
+                )
 
             denom = max(power_on_hours, 1.0)
             return {
                 "Power_On_Hours": power_on_hours,
-                "Total_TBW_TB": round(self._to_float(raw.get("estimated_total_tbw_tb"), 0.0), 4),
-                "Total_TBR_TB": round(self._to_float(raw.get("estimated_total_tbr_tb"), 0.0), 4),
+                "Total_TBW_TB": total_tbw_tb,
+                "Total_TBR_TB": total_tbr_tb,
                 "Temperature_C": round(temp, 2),
                 "Percent_Life_Used": max(0.0, min(100.0, wear_used)),
                 "Media_Errors": media_errors,
