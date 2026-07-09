@@ -205,8 +205,12 @@ def predict():
                 rule_mode = top_algo["mode"]
                 
                 # If any failure probability > 5% OR rule score >= 50, override
-                best_failure = max(failure_probs, key=failure_probs.get) if failure_probs else rule_mode
-                best_failure_prob = failure_probs.get(best_failure, 0)
+                if failure_probs:
+                    best_failure = max(failure_probs, key=failure_probs.get)
+                    best_failure_prob = failure_probs[best_failure]
+                else:
+                    best_failure = rule_mode
+                    best_failure_prob = 0
                 
                 if best_failure_prob > 0.05 or top_algo["score"] >= 50:
                     pred_mode = rule_mode  # Trust the rules for failure TYPE
@@ -357,5 +361,6 @@ def independent_algorithms():
 
 if __name__ == "__main__":
     print("\n  NVMe Failure Prediction Dashboard")
-    print("  http://localhost:5000\n")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", "5000"))
+    print(f"  http://localhost:{port}\n")
+    app.run(debug=False, host="0.0.0.0", port=port)
