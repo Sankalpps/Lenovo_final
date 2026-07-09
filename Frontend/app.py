@@ -19,6 +19,7 @@ from nvme_live_data_provider import LiveDataProvider, LiveTelemetryError
 # --- Paths ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_LOAD_ERROR = None
 
 # --- Load trained artifacts ---
 try:
@@ -27,6 +28,7 @@ try:
     label_encoder = joblib.load(os.path.join(MODEL_DIR, "label_encoder.pkl"))
     print("Models loaded successfully")
 except Exception as e:
+    MODEL_LOAD_ERROR = str(e)
     print(f"Warning: Could not load models: {e}")
     model = None
     scaler = None
@@ -91,7 +93,10 @@ def index():
 
 @app.route("/api/metadata")
 def api_metadata():
-    return jsonify(metadata)
+    payload = dict(metadata)
+    payload["models_loaded"] = all(obj is not None for obj in (model, scaler, label_encoder))
+    payload["model_load_error"] = MODEL_LOAD_ERROR or ""
+    return jsonify(payload)
 
 
 @app.route("/api/live-data", methods=["GET"])
